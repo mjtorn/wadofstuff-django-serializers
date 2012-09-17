@@ -1,9 +1,13 @@
 """
 Full Python serializer for Django.
+
+Applied patch from http://code.google.com/p/wadofstuff/issues/detail?id=4
+by stur...@gmail.com, Apr 7, 2009.
 """
 import base
 from django.utils.encoding import smart_unicode, is_protected_type
 from django.core.serializers.python import Deserializer as PythonDeserializer
+from django.db import models
 
 class Serializer(base.Serializer):
     """
@@ -149,6 +153,67 @@ class Serializer(base.Serializer):
                 self._extras[field] = smart_unicode(extra(), strings_only=True)
             else:
                 self._extras[field] = smart_unicode(extra, strings_only=True)
-                
+
+    # Reverse serialization code
+
+    def handle_related_m2m_field(self, obj, field_name):
+        """Called to handle 'reverse' m2m RelatedObjects
+        Recursively serializes relations specified in the 'relations' option.
+        """
+        fname = field_name
+
+        if field_name in self.relations:
+            # perform full serialization of M2M
+            serializer = Serializer()
+            options = {}
+            if isinstance(self.relations, dict):
+                if isinstance(self.relations[field_name], dict):
+                    options = self.relations[field_name]
+            self._fields[fname] = [
+                serializer.serialize([related], **options)[0]
+                    for related in getattr(obj, fname).iterator()]
+        else:
+            pass
+            # we don't really want to do this to reverse relations unless
+            # explicitly requested in relations option
+            #
+            # emulate the original behaviour and serialize to a list of ids
+            # self._fields[fname] = [
+            # smart_unicode(related._get_pk_val(), strings_only=True)
+            # for related in getattr(obj, fname).iterator()]
+
+    def handle_related_fk_field(self, obj, field_name):
+        """Called to handle 'reverse' fk serialization.
+        Recursively serializes relations specified in the 'relations' option.
+        """
+        fname = field_name
+        related = getattr(obj, fname)
+        if related is not None:
+            if field_name in self.relations:
+                # perform full serialization of FK
+                serializer = Serializer()
+                options = {}
+                if isinstance(self.relations, dict):
+                    if isinstance(self.relations[field_name], dict):
+                        options = self.relations[field_name]
+                # Handle reverse foreign key lookups that recurse on the model
+                if isinstance(related, models.Manager):
+                    # Related fields arrive here as querysets not modelfields
+                    self._fields[fname] = serializer.serialize(related.all(),
+                        **options)
+                else:
+                    self._fields[fname] = serializer.serialize([related],
+                        **options)[0]
+            else:
+                pass
+                # we don't really want to do this to reverse relations unless
+                # explicitly requested in relations option
+                #
+                # emulate the original behaviour and serialize to a list of ids
+                # self._fields[fname] = [
+                # smart_unicode(related._get_pk_val(), strings_only=True)
+                # for related in getattr(obj, fname).iterator()]
+        else:
+            self._fields[fname] = smart_unicode(related, strings_only=True)
 
 Deserializer = PythonDeserializer

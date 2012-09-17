@@ -1,11 +1,15 @@
-"""New base serializer class to handle full serialization of model objects."""
+"""
+New base serializer class to handle full serialization of model objects.
+
+Applied patch from http://code.google.com/p/wadofstuff/issues/detail?id=4
+by stur...@gmail.com, Apr 7, 2009.
+"""
 try:
     from cStringIO import StringIO
 except ImportError:
     from StringIO import StringIO
 
 from django.core.serializers import base
-
 
 class Serializer(base.Serializer):
     """Serializer for Django models inspired by Ruby on Rails serializer.
@@ -43,10 +47,7 @@ class Serializer(base.Serializer):
         self.start_serialization()
         for obj in queryset:
             self.start_object(obj)
-            # Use the concrete parent class' _meta instead of the object's _meta
-            # This is to avoid local_fields problems for proxy models. Refs #17717.
-            concrete_class = obj._meta.proxy_for_model or obj.__class__
-            for field in concrete_class._meta.local_fields:
+            for field in obj._meta.local_fields:
                 attname = field.attname
                 if field.serialize:
                     if field.rel is None:
@@ -57,11 +58,26 @@ class Serializer(base.Serializer):
                         if attname[:-3] not in self.excludes:
                             if not self.fields or attname[:-3] in self.fields:
                                 self.handle_fk_field(obj, field)
-            for field in concrete_class._meta.many_to_many:
+            for field in obj._meta.many_to_many:
                 if field.serialize:
                     if field.attname not in self.excludes:
                         if not self.fields or field.attname in self.fields:
                             self.handle_m2m_field(obj, field)
+            # relations patch
+            related_fk_objects = obj._meta.get_all_related_objects()
+            for ro in related_fk_objects:
+                field_name = ro.get_accessor_name()
+                if field_name not in self.excludes:
+                    self.handle_related_fk_field(obj, field_name)
+
+            related_m2m_objects = obj._meta.get_all_related_many_to_many_objects()
+            for ro in related_m2m_objects:
+                field_name = ro.get_accessor_name()
+                if field_name not in self.excludes:
+                    self.handle_related_m2m_field(obj, field_name)
+
+            # end relations patch
+
             for extra in self.extras:
                 self.handle_extra_field(obj, extra)
             self.end_object(obj)
@@ -71,3 +87,13 @@ class Serializer(base.Serializer):
     def handle_extra_field(self, obj, extra):
         """Called to handle 'extras' field serialization."""
         raise NotImplementedError
+
+    # relations patch
+    def handle_related_m2m_field(self, obj, field_name):
+        """Called to handle 'reverse' m2m serialization."""
+        raise NotImplementedError
+
+    def handle_related_fk_field(self, obj, field_name):
+        """Called to handle 'reverse' fk serialization."""
+        raise NotImplementedError
+
