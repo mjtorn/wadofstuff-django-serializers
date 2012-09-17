@@ -1,3 +1,7 @@
+Version 1.1.0-reverse_relation_patch:
+
+- Applied the reverse-fk/m2m patch
+
 Version 1.1.0:
 
 - Added support for "natural keys" as implemented in Django.
